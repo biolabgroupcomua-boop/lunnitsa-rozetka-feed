@@ -63,6 +63,8 @@ def cval(v, lang='ru'):
 
 
 HAIR = ('волос', 'шампун', 'кондиционер')
+# тип волосся: на сайті такої характеристики немає, беремо з hair_types.json (визначено з назв і описів)
+HAIR_TYPES = {k: v for k, v in json.load(open(os.path.join(ROOT, 'hair_types.json'), encoding='utf-8')).items() if not k.startswith('_')}
 
 
 def params(p):
@@ -78,8 +80,12 @@ def params(p):
         add('Объем', re.search(r'[\d.,]+\s*(мл|л)', vol).group(0))
     elif re.search(r'\d\s*(г|кг|гр)', vol):
         add('Вес', re.search(r'[\d.,]+\s*(г|кг|гр)', vol).group(0))
-    kind = (cval(ch.get('produkty')) + ' ' + cval(ch.get('kategorija')) + ' ' + cval(ch.get('primenenie'))).lower()
-    add('Тип волос' if any(h in kind for h in HAIR) else 'Тип кожи', cval(ch.get('tipKozhi')))
+    hair = HAIR_TYPES.get((p.get('article') or '').strip())
+    if hair:
+        add('Тип волос', hair)
+    else:
+        kind = (cval(ch.get('produkty')) + ' ' + cval(ch.get('kategorija')) + ' ' + cval(ch.get('primenenie'))).lower()
+        add('Тип волос' if any(h in kind for h in HAIR) else 'Тип кожи', cval(ch.get('tipKozhi')))
     add('Действие', cval(ch.get('deystvie')))
     add('Назначение', cval(ch.get('primenenie')))
     add('EAN', (p.get('gtin') or '').strip())
