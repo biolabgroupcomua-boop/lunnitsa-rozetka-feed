@@ -1,0 +1,52 @@
+name: rozetka-feed
+
+on:
+  schedule:
+    - cron: '17 * * * *'   # щогодини: кількість і наявність з API Horoshop
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - name: Зібрати фід
+        run: python build_feed.py
+        env:
+          HOROSHOP_DOMAIN: https://lunnitsa.com
+          HOROSHOP_LOGIN: ${{ secrets.HOROSHOP_LOGIN }}
+          HOROSHOP_PASSWORD: ${{ secrets.HOROSHOP_PASSWORD }}
+          BASE_URL: https://biolabgroupcomua-boop.github.io/lunnitsa-rozetka-feed/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
+      # GitHub вимикає розклад у публічному репо після 60 днів без комітів: раз на ~40 днів робимо службовий коміт
+      - name: Не дати GitHub вимкнути розклад
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt 3456000 ]; then
+            date -u +%Y-%m-%d > keepalive.txt
+            git config user.name "feed-bot"; git config user.email "feed-bot@users.noreply.github.com"
+            git add keepalive.txt && git commit -m "keepalive" && git push
+          fi
