@@ -3,7 +3,8 @@
 1. Бере фід Розетки, який Horoshop генерує щоночі: категорії, назви, описи.
 2. З API Horoshop бере актуальні кількість, наявність і звичайну ціну. Знижок на Розетку не передаємо
    (Olena 19.10: «Розетка дає свої знижки»): price = ціна сайту без знижок, price_old прибираємо.
-3. Ставить фото з site/img (photos.json): перше на білому. Товари без білих фото лишаються з фото сайту.
+3. Ставить фото з site/img (photos.json; набори — photos_sets.json, білий фон зроблено в KIE з фото сайту): перше на білому.
+   Товари без білих фото лишаються з фото сайту.
 4. Пише site/rozetka.xml і site/status.json. Якщо щось не вдалося — падає, і на Pages лишається попередній фід.
 Змінні середовища: HOROSHOP_DOMAIN, HOROSHOP_LOGIN, HOROSHOP_PASSWORD, BASE_URL (адреса Pages, зі слешем у кінці)."""
 import os, re, sys, json, time, datetime, requests
@@ -50,6 +51,9 @@ def main():
     xml = get_feed()
     stock = get_stock()
     photos = json.load(open(os.path.join(ROOT, 'photos.json'), encoding='utf-8'))
+    sets_path = os.path.join(ROOT, 'photos_sets.json')  # набори: біле фото з KIE + решта фото сайту (URL)
+    if os.path.exists(sets_path):
+        photos.update(json.load(open(sets_path, encoding='utf-8')))
     st = {'white_photos': 0, 'site_photos': [], 'stock_updated': 0, 'not_in_api': []}
 
     def offer(m):
@@ -68,7 +72,7 @@ def main():
         else:
             st['not_in_api'].append(key)
         if key in photos:
-            pics = ''.join('<picture>%simg/%s</picture>' % (BASE, f) for f in photos[key])
+            pics = ''.join('<picture>%s</picture>' % (f if f.startswith('http') else BASE + 'img/' + f) for f in photos[key])
             o = re.sub(r'(\s*<picture>[^<]*</picture>)+', '\n\t\t\t\t' + pics.replace('</picture><picture>', '</picture>\n\t\t\t\t<picture>'), o, count=1)
             st['white_photos'] += 1
         else:
