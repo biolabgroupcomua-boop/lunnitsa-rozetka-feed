@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Фід Розетки для Lunnitsa з білими фото. Запускає GitHub Actions щогодини (.github/workflows/feed.yml).
-1. Бере фід Розетки, який Horoshop генерує щоночі: категорії, назви, описи, ціни зі знижками.
-2. З API Horoshop бере актуальні кількість і наявність (ціни не чіпаємо: знижки рахує лише фід Horoshop).
+1. Бере фід Розетки, який Horoshop генерує щоночі: категорії, назви, описи.
+2. З API Horoshop бере актуальні кількість, наявність і звичайну ціну. Знижок на Розетку не передаємо
+   (Olena 19.10: «Розетка дає свої знижки»): price = ціна сайту без знижок, price_old прибираємо.
 3. Ставить фото з site/img (photos.json): перше на білому. Товари без білих фото лишаються з фото сайту.
 4. Пише site/rozetka.xml і site/status.json. Якщо щось не вдалося — падає, і на Pages лишається попередній фід.
 Змінні середовища: HOROSHOP_DOMAIN, HOROSHOP_LOGIN, HOROSHOP_PASSWORD, BASE_URL (адреса Pages, зі слешем у кінці)."""
@@ -39,7 +40,7 @@ def get_stock():
     while True:
         r = s.post(D + '/api/catalog/export/', json={'token': tok, 'offset': off, 'limit': 500}, timeout=180).json()['response']['products']
         for p in r:
-            out[p['article']] = (int(float(p.get('quantity') or 0)), (p.get('presence') or {}).get('id'))
+            out[p['article']] = (int(float(p.get('quantity') or 0)), (p.get('presence') or {}).get('id'), float(p.get('price') or 0))
         if len(r) < 500:
             return out
         off += 500
@@ -56,10 +57,13 @@ def main():
         art = re.search(r'<offer id="([^"]+)"', o).group(1)
         key = art.strip()
         if art in stock:
-            q, pres = stock[art]
+            q, pres, price = stock[art]
             avail = 'true' if pres == 1 and q > 0 else 'false'
             o = re.sub(r'available="\w+"', 'available="%s"' % avail, o, count=1)
             o = re.sub(r'<stock_quantity>[^<]*</stock_quantity>', '<stock_quantity>%d</stock_quantity>' % max(0, min(q, MAX_QTY)), o, count=1)
+            if price > 0:
+                o = re.sub(r'<price>[^<]*</price>', '<price>%s</price>' % ('%g' % price), o, count=1)
+            o = re.sub(r'\s*<price_old>[^<]*</price_old>', '', o)
             st['stock_updated'] += 1
         else:
             st['not_in_api'].append(key)
