@@ -48,7 +48,7 @@ def get_products():
 
 
 def esc(t):
-    return (t or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+    return (t or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&apos;')
 
 
 def cval(v, lang='ru'):
@@ -72,7 +72,18 @@ def params(p):
     об'єм/вага, тип шкіри чи волосся, дія, призначення, EAN."""
     ch = p.get('characteristics') or {}
     out = []
-    add = lambda n, v: v and out.append('<param name="%s">%s</param>' % (n, esc(v)))
+    def add(n, v, multi=False):
+        """Вимоги Розетки: значення ≤ 500 знаків; кілька значень — через <br> у CDATA."""
+        v = (v or '').strip()
+        if not v:
+            return
+        if multi and re.search(r'[,;]', v):
+            vals = [x.strip() for x in re.split(r'[,;]', v) if x.strip()]
+            out.append('<param name="%s"><![CDATA[%s]]></param>' % (n, '<br>'.join(vals)[:500]))
+            return
+        if len(v) > 500:  # склад: обрізаємо по останній комі, повний склад є в описі
+            v = v[:497].rsplit(',', 1)[0] + '…'
+        out.append('<param name="%s">%s</param>' % (n, esc(v)))
     add('Страна-производитель товара', cval(ch.get('country')))
     add('Состав', cval(ch.get('processor')))
     vol = cval(ch.get('ves')) or cval(ch.get('vid')).split(',')[-1].strip()
@@ -82,12 +93,12 @@ def params(p):
         add('Вес', re.search(r'[\d.,]+\s*(г|кг|гр)', vol).group(0))
     hair = HAIR_TYPES.get((p.get('article') or '').strip())
     if hair:
-        add('Тип волос', hair)
+        add('Тип волос', hair, True)
     else:
         kind = (cval(ch.get('produkty')) + ' ' + cval(ch.get('kategorija')) + ' ' + cval(ch.get('primenenie'))).lower()
-        add('Тип волос' if any(h in kind for h in HAIR) else 'Тип кожи', cval(ch.get('tipKozhi')))
-    add('Действие', cval(ch.get('deystvie')))
-    add('Назначение', cval(ch.get('primenenie')))
+        add('Тип волос' if any(h in kind for h in HAIR) else 'Тип кожи', cval(ch.get('tipKozhi')), True)
+    add('Действие', cval(ch.get('deystvie')), True)
+    add('Назначение', cval(ch.get('primenenie')), True)
     add('EAN', (p.get('gtin') or '').strip())
     return out
 
@@ -126,6 +137,9 @@ def main():
                      '<description><![CDATA[%s]]></description>' % (descs['ru'] or descs['ua']),
                      '<description_ua><![CDATA[%s]]></description_ua>' % (descs['ua'] or descs['ru'])] + params(p)
             o = re.sub(r'\s*</offer>$', '', o) + '\n' + ''.join('\t\t\t\t%s\n' % x for x in block) + '\t\t\t</offer>'
+            o = re.sub(r'<offer id="([^"]+)"', lambda m: '<offer id="%s"' % re.sub(r'[^A-Za-z0-9]', '', m.group(1)), o, count=1)
+            if '<vendor>' not in o:
+                o = o.replace('<stock_quantity>', '<vendor>Lunnitsa</vendor>\n\t\t\t\t<stock_quantity>', 1)
             st['stock_updated'] += 1
             st['params'] = st.get('params', 0) + len(block) - 4
         else:
@@ -146,6 +160,11 @@ def main():
     st.update({'offers': n, 'horoshop_feed_date': (re.search(r'yml_catalog date="([^"]+)"', xml) or [None, ''])[1],
                'built_utc': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')})
     json.dump(st, open(os.path.join(ROOT, 'site', 'status.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    import subprocess
+    chk = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'check_feed.py')], capture_output=True, text=True, encoding='utf-8')
+    print(chk.stdout.strip())
+    if chk.returncode:
+        raise SystemExit('фід не пройшов перевірку правил Розетки')
     print('товарів %d | білі фото %d | фото сайту %d | кількість з API %d | немає в API %d' % (
         n, st['white_photos'], len(st['site_photos']), st['stock_updated'], len(st['not_in_api'])))
 
