@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Фід Розетки для Lunnitsa з білими фото. Запускає GitHub Actions щогодини (.github/workflows/feed.yml).
 1. Бере фід Розетки, який Horoshop генерує щоночі: категорії, назви, описи.
-2. З API Horoshop бере актуальні кількість, наявність і звичайну ціну. Знижок на Розетку не передаємо
+2. З API Horoshop бере актуальні кількість, наявність, звичайну ціну, назви й описи UA/RU і характеристики (<param>). Знижок на Розетку не передаємо
    (Olena 19.10: «Розетка дає свої знижки»): price = ціна сайту без знижок, price_old прибираємо.
 3. Ставить фото з site/img (photos.json; набори — photos_sets.json, білий фон зроблено в KIE з фото сайту): перше на білому.
    Товари без білих фото лишаються з фото сайту.
@@ -34,22 +34,61 @@ def get_feed():
     raise SystemExit('фід Horoshop: не пройшли перевірку ботів')
 
 
-def get_stock():
+def get_products():
     s = requests.Session(); s.headers['User-Agent'] = UA
     tok = s.post(D + '/api/auth', json={'login': os.environ['HOROSHOP_LOGIN'], 'password': os.environ['HOROSHOP_PASSWORD']}, timeout=60).json()['response']['token']
     out, off = {}, 0
     while True:
         r = s.post(D + '/api/catalog/export/', json={'token': tok, 'offset': off, 'limit': 500}, timeout=180).json()['response']['products']
         for p in r:
-            out[p['article']] = (int(float(p.get('quantity') or 0)), (p.get('presence') or {}).get('id'), float(p.get('price') or 0))
+            out[p['article']] = p
         if len(r) < 500:
             return out
         off += 500
 
 
+def esc(t):
+    return (t or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+
+
+def cval(v, lang='ru'):
+    """Значення характеристики Horoshop: {'value': {'ru':…}} / {'ru':…} / список."""
+    if isinstance(v, dict) and 'value' in v:
+        v = v['value']
+    if isinstance(v, dict):
+        return (v.get(lang) or v.get('ru') or v.get('ua') or '').strip()
+    if isinstance(v, list):
+        return '; '.join(filter(None, (cval(x, lang) for x in v)))
+    return str(v or '').strip()
+
+
+HAIR = ('волос', 'шампун', 'кондиционер')
+
+
+def params(p):
+    """Характеристики для Розетки (назви полів як у фідах інших брендів на Розетці, напр. Melony): країна, склад,
+    об'єм/вага, тип шкіри чи волосся, дія, призначення, EAN."""
+    ch = p.get('characteristics') or {}
+    out = []
+    add = lambda n, v: v and out.append('<param name="%s">%s</param>' % (n, esc(v)))
+    add('Страна-производитель товара', cval(ch.get('country')))
+    add('Состав', cval(ch.get('processor')))
+    vol = cval(ch.get('ves')) or cval(ch.get('vid')).split(',')[-1].strip()
+    if re.search(r'\d\s*(мл|л)', vol):
+        add('Объем', re.search(r'[\d.,]+\s*(мл|л)', vol).group(0))
+    elif re.search(r'\d\s*(г|кг|гр)', vol):
+        add('Вес', re.search(r'[\d.,]+\s*(г|кг|гр)', vol).group(0))
+    kind = (cval(ch.get('produkty')) + ' ' + cval(ch.get('kategorija')) + ' ' + cval(ch.get('primenenie'))).lower()
+    add('Тип волос' if any(h in kind for h in HAIR) else 'Тип кожи', cval(ch.get('tipKozhi')))
+    add('Действие', cval(ch.get('deystvie')))
+    add('Назначение', cval(ch.get('primenenie')))
+    add('EAN', (p.get('gtin') or '').strip())
+    return out
+
+
 def main():
     xml = get_feed()
-    stock = get_stock()
+    stock = get_products()
     photos = json.load(open(os.path.join(ROOT, 'photos.json'), encoding='utf-8'))
     sets_path = os.path.join(ROOT, 'photos_sets.json')  # набори: біле фото з KIE + решта фото сайту (URL)
     if os.path.exists(sets_path):
@@ -61,14 +100,28 @@ def main():
         art = re.search(r'<offer id="([^"]+)"', o).group(1)
         key = art.strip()
         if art in stock:
-            q, pres, price = stock[art]
+            p = stock[art]
+            q, pres, price = int(float(p.get('quantity') or 0)), (p.get('presence') or {}).get('id'), float(p.get('price') or 0)
             avail = 'true' if pres == 1 and q > 0 else 'false'
             o = re.sub(r'available="\w+"', 'available="%s"' % avail, o, count=1)
             o = re.sub(r'<stock_quantity>[^<]*</stock_quantity>', '<stock_quantity>%d</stock_quantity>' % max(0, min(q, MAX_QTY)), o, count=1)
             if price > 0:
                 o = re.sub(r'<price>[^<]*</price>', '<price>%s</price>' % ('%g' % price), o, count=1)
             o = re.sub(r'\s*<price_old>[^<]*</price_old>', '', o)
+            # назва й опис: name/description російською, name_ua/description_ua українською (вимога YML Розетки)
+            rt, md = p.get('rozetka_title') or {}, p.get('marketplace_description') or {}
+            names = {L: (rt.get(L) or (p.get('title') or {}).get(L) or '').strip() for L in ('ru', 'ua')}
+            descs = {L: (md.get(L) or '').replace(']]>', ']] >').strip() for L in ('ru', 'ua')}
+            ean_horoshop = (re.search(r'<param name="EAN">([^<]+)</param>', o) or [None, ''])[1].strip()  # штрихкод із картки, якого немає в API
+            if ean_horoshop and not (p.get('gtin') or '').strip():
+                p = dict(p, gtin=ean_horoshop)
+            o = re.sub(r'\s*<(name|name_ua|description|description_ua|param)\b[^>]*>.*?</\1>', '', o, flags=re.S)
+            block = ['<name>%s</name>' % esc(names['ru'] or names['ua']), '<name_ua>%s</name_ua>' % esc(names['ua'] or names['ru']),
+                     '<description><![CDATA[%s]]></description>' % (descs['ru'] or descs['ua']),
+                     '<description_ua><![CDATA[%s]]></description_ua>' % (descs['ua'] or descs['ru'])] + params(p)
+            o = re.sub(r'\s*</offer>$', '', o) + '\n' + ''.join('\t\t\t\t%s\n' % x for x in block) + '\t\t\t</offer>'
             st['stock_updated'] += 1
+            st['params'] = st.get('params', 0) + len(block) - 4
         else:
             st['not_in_api'].append(key)
         if key in photos:
