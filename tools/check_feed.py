@@ -116,9 +116,9 @@ if warn:
     print('! категорії без rz_id (дописати товар у categories.json): %s' % '; '.join(warn))
 # p398: у товарі щонайменше 2 характеристики з назвами Розетки його категорії (інакше Pricecreator не пустить у XML)
 import json
-RZP = json.load(open(os.path.join(ROOT, 'rozetka_category_params.json'), encoding='utf-8'))
+RZP = {k: {p['name'] for p in v['params']} for k, v in json.load(open(os.path.join(ROOT, 'pricecreator_params.json'), encoding='utf-8')).items() if not k.startswith('_')}
 few = [o.get('id') for o in shop.find('offers')
-       if len({p.get('name') for p in o.findall('param')} & set(RZP.get(o.findtext('categoryId'), {}))) < 2]
+       if len({p.get('name') for p in o.findall('param')} - {'EAN', 'Склад'} & RZP.get(o.findtext('categoryId'), set())) < 2]
 if few:
     print('! менше 2 характеристик Розетки: %s' % ', '.join(few))
 names_ua = collections.Counter(o.findtext('name_ua') for o in shop.find('offers'))

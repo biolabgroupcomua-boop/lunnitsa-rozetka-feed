@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Характеристики <param> з назвами й значеннями Розетки для кожної категорії.
 Pricecreator переносить характеристику з фіду в «Доступні характеристики ROZETKA» лише за ТОЧНОЮ назвою (довідка
-p375), а в товарі має бути щонайменше 2 такі (p398). Назви й значення категорій: rozetka_category_params.json
-(зібрано з фільтрів rozetka.com.ua). Значення з сайту (російською, вільним текстом) переводимо в слова зі списку
-категорії; що не вдалося перекласти, не передаємо."""
+p375), а в товарі має бути щонайменше 2 такі (p398), на Розетці — 3 (p210). Точні назви — pricecreator_params.json
+(налаштування категорій у кабінеті); значення — зі списків фільтрів rozetka.com.ua (rozetka_category_params.json).
+Значення з сайту (російською, вільним текстом) переводимо в слова зі списку категорії; що не вдалося перекласти,
+не передаємо."""
 import os, re, json
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -57,6 +58,35 @@ KIT = [(r'гель для душу', 'Гель для душу'), (r'пінк', 
        (r'лосьйон', 'Лосьйон'), (r'молочко', 'Молочко'), (r'шампун', 'Шампунь'), (r'кондиціонер', 'Кондиціонер')]
 
 
+PC = {k: {p['name']: p['type'] for p in v['params']}
+      for k, v in json.load(open(os.path.join(ROOT, 'pricecreator_params.json'), encoding='utf-8')).items() if not k.startswith('_')}
+# назва фільтра на rozetka.com.ua → назви тієї самої характеристики в Pricecreator (перша, що є в категорії)
+TO_PC = {
+    'Країна-виробник': ['Країна-виробник товару'], 'Країна-виробник товару': ['Країна-виробник товару'],
+    'Стать': ['Стать', 'Категорія'], 'Категорія': ['Категорія', 'Стать'], 'Для кого': ['Для кого', 'Категорія', 'Стать'],
+    'Вікова категорія': ['Вікова категорія', 'Категорія', 'Стать'],
+    'Сфера застосування': ['Галузь застосування', 'Сфера застосування'],
+    'Ступінь захисту, SPF': ['Ступінь захисту'], 'Кількість патчів в упаковці, шт': ['Кількість в упаковці'],
+    'Тип': ['Тип', 'Тип скраба', 'Тип засобу'],
+}
+NUMERIC = ('Decimal', 'Integer')
+
+
+def to_pricecreator(cat, pairs):
+    """[(назва фільтра, значення)] → [(точна назва Pricecreator, значення)]. Назви, яких у категорії немає, відкидаємо.
+    Об'єм і вагу передаємо з одиницею («50 мл»), якщо поле не числове."""
+    names = PC.get(cat, {})
+    out = []
+    for n, v in pairs:
+        target = next((x for x in TO_PC.get(n, [n]) if x in names), None)
+        if not target or target in dict(out):
+            continue
+        if names[target] in NUMERIC:
+            v = number(v)
+        out.append((target, v))
+    return out
+
+
 def allowed(cat, name, value):
     """Значення є в списку категорії; якщо список порожній (число) або обрізаний сайтом (≥30), приймаємо наше слово."""
     lst = CAT.get(cat, {}).get(name)
@@ -91,10 +121,9 @@ def params(cat, title_ua, ch, extra):
     for n in ('Стать', 'Категорія', 'Для кого', 'Вікова категорія'):
         add(n, WOMEN)
     if extra.get('volume'):
-        add("Об'єм", number(extra['volume']))
+        add("Об'єм", re.sub(r'\s+', ' ', extra['volume']).strip())
     if extra.get('weight'):
-        w = extra['weight']
-        add('Вага', w if CAT.get(cat, {}).get('Вага') else number(w))
+        add('Вага', extra['weight'])
     skins = [SKIN[s.strip().lower()] for s in re.split(r'[,;]', ch.get('skin', '')) if s.strip().lower() in SKIN]
     if skins:
         add('Тип шкіри', ', '.join(v for v in dict.fromkeys(skins) if allowed(cat, 'Тип шкіри', v)))
@@ -149,7 +178,7 @@ def params(cat, title_ua, ch, extra):
     if cat in ('4657262', '4657286', '4657310', '4657292', '4657328'):
         add('Сфера застосування', 'Зона навколо очей' if 'навколо очей' in t else 'Обличчя')
     if cat == '4676068':
-        add('Ступінь захисту, SPF', number(re.search(r'spf\s*\d+', t).group(0)) if re.search(r'spf\s*\d+', t) else '')
+        add('Ступінь захисту, SPF', 'SPF %s' % number(re.search(r'spf\s*\d+', t).group(0)) if re.search(r'spf\s*\d+', t) else '')
     if cat == '4657280':
         m = re.search(r'(\d+)\s*шт', t)
         add('Кількість патчів в упаковці, шт', m.group(1) if m else '')
@@ -169,8 +198,21 @@ def params(cat, title_ua, ch, extra):
     if 'Сфера застосування' in c and cat == '4657472':
         add('Сфера застосування', ', '.join(v for rx, v in ((r'обличч', 'Обличчя'), (r'тіл|душ', 'Тіло')) if re.search(rx, t)))
     # не з фільтрів Розетки, але корисне: склад і штрихкод (EAN — назва з довідки p215)
+    # поля Pricecreator, яких немає серед фільтрів сайту (to_pricecreator лишить лише ті, що є в категорії)
+    out.append(('Країна реєстрації бренду', 'Україна'))  # Lunnitsa — український бренд
+    if cat not in ('4658546', '4675902', '4657334', '4657526'):
+        out.append(('Клас косметики', COSM_CLASS))
+        out.append(('Категорія', WOMEN))
+    if cat == '4657334' and 'рожев' in t:
+        out.append(('Колір', 'Рожевий'))  # рожевий кварц
+    if cat == '4658510':
+        m = re.search(r'№\s*(\d+)', title_ua or '')
+        if m:
+            out.append(('Тон', m.group(1)))
+        if extra.get('weight'):
+            out.append(('Вага', extra['weight']))
     if extra.get('composition'):
         out.append(('Склад', extra['composition']))
     if extra.get('ean'):
         out.append(('EAN', extra['ean']))
-    return out
+    return to_pricecreator(cat, out)
