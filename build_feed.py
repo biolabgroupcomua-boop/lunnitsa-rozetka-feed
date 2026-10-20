@@ -104,36 +104,33 @@ def params(p):
     return out
 
 
-def subcategories(xml, st):
-    """Ділить категорії Horoshop на підкатегорії лише у фіді (subcategories.json): Розетка прив'язує тільки до кінцевої підкатегорії."""
-    path = os.path.join(ROOT, 'subcategories.json')
-    if not os.path.exists(path):
-        return xml
-    subs = {k: v for k, v in json.load(open(path, encoding='utf-8')).items() if not k.startswith('_')}
-    where = {art: (parent, s['id']) for parent, lst in subs.items() for s in lst for art in s['items']}
-    st['no_subcategory'] = []
+def categories(xml, st):
+    """Категорії Розетки замість категорій Horoshop (categories.json): id = rz_id = ID кінцевої категорії на rozetka.com.ua.
+    Товар без запису в categories.json лишається в категорії Horoshop (status.json → no_category)."""
+    cats = json.load(open(os.path.join(ROOT, 'categories.json'), encoding='utf-8'))['categories']
+    where = {art: c['id'] for c in cats for art in c['items']}
+    st['no_category'] = []
+    used = set()
 
     def offer(m):
         o = m.group(0)
         art = re.search(r'<offer id="([^"]+)"', o).group(1)
-        cat = re.search(r'<categoryId>([^<]+)</categoryId>', o).group(1).strip()
-        if cat in subs:
-            if where.get(art, (None,))[0] == cat:  # id підкатегорії = id батьківської: товар лишається на місці
-                o = o.replace('<categoryId>%s</categoryId>' % cat, '<categoryId>%s</categoryId>' % where[art][1], 1)
-            else:
-                st['no_subcategory'].append(art)
+        if art in where:
+            o = re.sub(r'<categoryId>[^<]*</categoryId>', '<categoryId>%s</categoryId>' % where[art], o, count=1)
+        else:
+            st['no_category'].append(art)
+        used.add(re.search(r'<categoryId>([^<]+)</categoryId>', o).group(1).strip())
         return o
 
     xml = re.sub(r'<offer\b.*?</offer>', offer, xml, flags=re.S)
-    for parent, lst in subs.items():
-        m = re.search(r'([ \t]*)<category id="%s"[^>]*>[^<]*</category>' % parent, xml)
-        if not m:
-            continue
-        # rz_id: автоматична прив'язка до категорії Розетки; parentId Розетка не описує, тому підкатегорії йдуть плоско
-        lines = ''.join('\n%s<category id="%s"%s>%s</category>' % (
-            m.group(1), s['id'], ' rz_id="%s"' % s['rz_id'] if s.get('rz_id') else '', esc(s['name'])) for s in lst if s['id'] != parent)
-        xml = xml[:m.end()] + lines + xml[m.end():]
-    return xml
+    m = re.search(r'([ \t]*)<categories>(.*?)</categories>', xml, re.S)
+    ind = m.group(1) + '\t'
+    # категорії Horoshop лишаються лише для товарів без запису в categories.json
+    old = [c for c in re.findall(r'<category\b[^>]*>[^<]*</category>', m.group(2)) if re.search(r'id="([^"]+)"', c).group(1) in used]
+    # rz_id: автоматична прив'язка до категорії Розетки (p185)
+    ours = ['<category id="%s" rz_id="%s">%s</category>' % (c['id'], c['id'], esc(c['name'])) for c in cats if c['id'] in used]
+    block = '%s<categories>\n%s\n%s</categories>' % (m.group(1), '\n'.join(ind + c for c in ours + old), m.group(1))
+    return xml[:m.start()] + block + xml[m.end():]
 
 
 def main():
@@ -190,7 +187,7 @@ def main():
     xml, n = re.subn(r'<offer\b.*?</offer>', offer, xml, flags=re.S)
     if n == 0:
         raise SystemExit('у фіді Horoshop немає товарів')
-    xml = subcategories(xml, st)
+    xml = categories(xml, st)
     # p185: date = час генерації або зміни файлу; Horoshop ставить час нічного фіду, а ми оновлюємо щогодини
     st['horoshop_feed_date'] = (re.search(r'yml_catalog date="([^"]+)"', xml) or [None, ''])[1]
     try:

@@ -103,9 +103,17 @@ for o in shop.find('offers'):
             w, h = Image.open(f).size
             if min(w, h) < 400 or max(w, h) > 4000 or os.path.getsize(f) > 10 * 2 ** 20:
                 bad['фото: розмір 400–4000 px, до 10 МБ'].append('%s %s %dx%d' % (i, u.rsplit('/', 1)[-1], w, h))
+used = {o.findtext('categoryId') for o in shop.find('offers')}
+warn = []
 for c in shop.find('categories'):
     if len(c.text or '') > 255:
         bad['назва категорії > 255'].append(c.get('id'))
+    if c.get('id') not in used:
+        bad['категорія без товарів'].append('%s %s' % (c.get('id'), c.text))
+    if not c.get('rz_id'):  # не блокує: новий товар без запису в categories.json лишається в категорії Horoshop
+        warn.append('%s %s' % (c.get('id'), c.text))
+if warn:
+    print('! категорії без rz_id (дописати товар у categories.json): %s' % '; '.join(warn))
 names_ua = collections.Counter(o.findtext('name_ua') for o in shop.find('offers'))
 for n, c in names_ua.items():
     if c > 1:
