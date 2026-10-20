@@ -10,7 +10,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 CAT = {k: v for k, v in json.load(open(os.path.join(ROOT, 'rozetka_category_params.json'), encoding='utf-8')).items()
        if not k.startswith('_')}
 
-# рішення, а не дані сайту: усі товари Лунниці жіночі (аромати жіночі — Olena 20.10.2026)
+# рішення, а не дані сайту: усі товари Лунниці для жінок (Olena 20.10.2026)
 WOMEN = 'Для жінок'
 COSM_CLASS = 'Натуральна'
 PERFUME_CLASS = 'Нішева'  # на упаковці «NICHE PERFUME»
