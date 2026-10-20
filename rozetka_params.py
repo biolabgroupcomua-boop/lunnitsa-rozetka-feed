@@ -12,7 +12,7 @@ CAT = {k: v for k, v in json.load(open(os.path.join(ROOT, 'rozetka_category_para
 
 # рішення, а не дані сайту: усі товари Лунниці для жінок (Olena 20.10.2026)
 WOMEN = 'Для жінок'
-COSM_CLASS = 'Натуральна'
+COSM_CLASS = 'Натуральна'  # уся косметика (Olena 20.10.2026)
 PERFUME_CLASS = 'Нішева'  # на упаковці «NICHE PERFUME»
 
 COUNTRY = {'Украина': 'Україна', 'Україна': 'Україна', 'Китай': 'Китай'}
