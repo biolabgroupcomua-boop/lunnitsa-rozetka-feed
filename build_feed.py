@@ -128,7 +128,9 @@ def subcategories(xml, st):
         m = re.search(r'([ \t]*)<category id="%s"[^>]*>[^<]*</category>' % parent, xml)
         if not m:
             continue
-        lines = ''.join('\n%s<category id="%s" parentId="%s">%s</category>' % (m.group(1), s['id'], parent, esc(s['name'])) for s in lst)
+        # rz_id: автоматична прив'язка до категорії Розетки; parentId Розетка не описує, тому підкатегорії йдуть плоско
+        lines = ''.join('\n%s<category id="%s"%s>%s</category>' % (
+            m.group(1), s['id'], ' rz_id="%s"' % s['rz_id'] if s.get('rz_id') else '', esc(s['name'])) for s in lst)
         xml = xml[:m.end()] + lines + xml[m.end():]
     return xml
 
