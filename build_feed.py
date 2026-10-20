@@ -103,6 +103,36 @@ def params(p):
     return out
 
 
+def subcategories(xml, st):
+    """Ділить категорії Horoshop на підкатегорії лише у фіді (subcategories.json): Розетка прив'язує тільки до кінцевої підкатегорії."""
+    path = os.path.join(ROOT, 'subcategories.json')
+    if not os.path.exists(path):
+        return xml
+    subs = {k: v for k, v in json.load(open(path, encoding='utf-8')).items() if not k.startswith('_')}
+    where = {art: (parent, s['id']) for parent, lst in subs.items() for s in lst for art in s['items']}
+    st['no_subcategory'] = []
+
+    def offer(m):
+        o = m.group(0)
+        art = re.search(r'<offer id="([^"]+)"', o).group(1)
+        cat = re.search(r'<categoryId>([^<]+)</categoryId>', o).group(1).strip()
+        if cat in subs:
+            if where.get(art, (None,))[0] == cat:
+                o = o.replace('<categoryId>%s</categoryId>' % cat, '<categoryId>%s</categoryId>' % where[art][1], 1)
+            else:
+                st['no_subcategory'].append(art)
+        return o
+
+    xml = re.sub(r'<offer\b.*?</offer>', offer, xml, flags=re.S)
+    for parent, lst in subs.items():
+        m = re.search(r'([ \t]*)<category id="%s"[^>]*>[^<]*</category>' % parent, xml)
+        if not m:
+            continue
+        lines = ''.join('\n%s<category id="%s" parentId="%s">%s</category>' % (m.group(1), s['id'], parent, esc(s['name'])) for s in lst)
+        xml = xml[:m.end()] + lines + xml[m.end():]
+    return xml
+
+
 def main():
     xml = get_feed()
     stock = get_products()
@@ -155,6 +185,7 @@ def main():
     xml, n = re.subn(r'<offer\b.*?</offer>', offer, xml, flags=re.S)
     if n == 0:
         raise SystemExit('у фіді Horoshop немає товарів')
+    xml = subcategories(xml, st)
     os.makedirs(os.path.join(ROOT, 'site'), exist_ok=True)
     open(os.path.join(ROOT, 'site', 'rozetka.xml'), 'w', encoding='utf-8').write(xml)
     st.update({'offers': n, 'horoshop_feed_date': (re.search(r'yml_catalog date="([^"]+)"', xml) or [None, ''])[1],
