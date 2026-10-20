@@ -8,6 +8,7 @@
 4. Пише site/rozetka.xml і site/status.json. Якщо щось не вдалося — падає, і на Pages лишається попередній фід.
 Змінні середовища: HOROSHOP_DOMAIN, HOROSHOP_LOGIN, HOROSHOP_PASSWORD, BASE_URL (адреса Pages, зі слешем у кінці)."""
 import os, re, sys, json, time, datetime, requests
+import rozetka_rules as R
 
 sys.stdout.reconfigure(encoding='utf-8')
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -117,7 +118,7 @@ def subcategories(xml, st):
         art = re.search(r'<offer id="([^"]+)"', o).group(1)
         cat = re.search(r'<categoryId>([^<]+)</categoryId>', o).group(1).strip()
         if cat in subs:
-            if where.get(art, (None,))[0] == cat:
+            if where.get(art, (None,))[0] == cat:  # id підкатегорії = id батьківської: товар лишається на місці
                 o = o.replace('<categoryId>%s</categoryId>' % cat, '<categoryId>%s</categoryId>' % where[art][1], 1)
             else:
                 st['no_subcategory'].append(art)
@@ -130,7 +131,7 @@ def subcategories(xml, st):
             continue
         # rz_id: автоматична прив'язка до категорії Розетки; parentId Розетка не описує, тому підкатегорії йдуть плоско
         lines = ''.join('\n%s<category id="%s"%s>%s</category>' % (
-            m.group(1), s['id'], ' rz_id="%s"' % s['rz_id'] if s.get('rz_id') else '', esc(s['name'])) for s in lst)
+            m.group(1), s['id'], ' rz_id="%s"' % s['rz_id'] if s.get('rz_id') else '', esc(s['name'])) for s in lst if s['id'] != parent)
         xml = xml[:m.end()] + lines + xml[m.end():]
     return xml
 
@@ -159,8 +160,9 @@ def main():
             o = re.sub(r'\s*<price_old>[^<]*</price_old>', '', o)
             # назва й опис: name/description російською, name_ua/description_ua українською (вимога YML Розетки)
             rt, md = p.get('rozetka_title') or {}, p.get('marketplace_description') or {}
-            names = {L: (rt.get(L) or (p.get('title') or {}).get(L) or '').strip() for L in ('ru', 'ua')}
-            descs = {L: (md.get(L) or '').replace(']]>', ']] >').strip() for L in ('ru', 'ua')}
+            # назва за формулою Розетки (p217), опис з HTML-розміткою (p212): rozetka_rules.py
+            names = {L: R.name((rt.get(L) or (p.get('title') or {}).get(L) or '').strip(), key) for L in ('ru', 'ua')}
+            descs = {L: R.html((md.get(L) or '').replace(']]>', ']] >').strip()) for L in ('ru', 'ua')}
             ean_horoshop = (re.search(r'<param name="EAN">([^<]+)</param>', o) or [None, ''])[1].strip()  # штрихкод із картки, якого немає в API
             if ean_horoshop and not (p.get('gtin') or '').strip():
                 p = dict(p, gtin=ean_horoshop)
@@ -170,8 +172,9 @@ def main():
                      '<description_ua><![CDATA[%s]]></description_ua>' % (descs['ua'] or descs['ru'])] + params(p)
             o = re.sub(r'\s*</offer>$', '', o) + '\n' + ''.join('\t\t\t\t%s\n' % x for x in block) + '\t\t\t</offer>'
             o = re.sub(r'<offer id="([^"]+)"', lambda m: '<offer id="%s"' % re.sub(r'[^A-Za-z0-9]', '', m.group(1)), o, count=1)
-            if '<vendor>' not in o:
-                o = o.replace('<stock_quantity>', '<vendor>Lunnitsa</vendor>\n\t\t\t\t<stock_quantity>', 1)
+            # бренд у <vendor> = бренд у назві (p217); у Horoshop у двох товарів LELYA стоїть «promo»
+            o = re.sub(r'\s*<vendor>[^<]*</vendor>', '', o)
+            o = o.replace('<stock_quantity>', '<vendor>Lunnitsa</vendor>\n\t\t\t\t<article>%s</article>\n\t\t\t\t<stock_quantity>' % esc(key), 1)
             st['stock_updated'] += 1
             st['params'] = st.get('params', 0) + len(block) - 4
         else:
@@ -188,10 +191,17 @@ def main():
     if n == 0:
         raise SystemExit('у фіді Horoshop немає товарів')
     xml = subcategories(xml, st)
+    # p185: date = час генерації або зміни файлу; Horoshop ставить час нічного фіду, а ми оновлюємо щогодини
+    st['horoshop_feed_date'] = (re.search(r'yml_catalog date="([^"]+)"', xml) or [None, ''])[1]
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.datetime.now(ZoneInfo('Europe/Kyiv'))
+    except Exception:
+        now = datetime.datetime.now(datetime.timezone.utc)
+    xml = re.sub(r'yml_catalog date="[^"]*"', 'yml_catalog date="%s"' % now.strftime('%Y-%m-%d %H:%M'), xml, count=1)
     os.makedirs(os.path.join(ROOT, 'site'), exist_ok=True)
     open(os.path.join(ROOT, 'site', 'rozetka.xml'), 'w', encoding='utf-8').write(xml)
-    st.update({'offers': n, 'horoshop_feed_date': (re.search(r'yml_catalog date="([^"]+)"', xml) or [None, ''])[1],
-               'built_utc': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')})
+    st.update({'offers': n, 'built_utc': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')})
     json.dump(st, open(os.path.join(ROOT, 'site', 'status.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     import subprocess
     chk = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'check_feed.py')], capture_output=True, text=True, encoding='utf-8')

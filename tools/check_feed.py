@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Перевірка site/rozetka.xml за вимогами Розетки до XML (sellerhelp.rozetka.com.ua/p185-pricelist-requirements.html).
+"""Перевірка site/rozetka.xml за вимогами Розетки (sellerhelp.rozetka.com.ua: p185 XML, p217 назва, p212 опис, p210 характеристики, p216 фото).
 python tools/check_feed.py [файл]  → список порушень; код виходу 1, якщо є порушення."""
 import re, sys, os, collections
 import xml.etree.ElementTree as ET
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
+DESC_TAGS = {'strong', 'b', 'p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'table', 'tbody', 'tr', 'td', 'th', 'div', 'span'}
 
 sys.stdout.reconfigure(encoding='utf-8')
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -63,6 +68,48 @@ for o in shop.find('offers'):
             bad['param без назви чи значення'].append(i)
         if len(v) > 500:
             bad['param > 500 знаків'].append('%s %s (%d)' % (i, p.get('name'), len(v)))
+    # p217 назва: без розділових знаків і спецсимволів (артикул у дужках дозволено), бренд у назві = <vendor>
+    vendor = o.findtext('vendor') or ''
+    for t in ('name', 'name_ua'):
+        n = o.findtext(t) or ''
+        if re.search(r'[,.:;«»"№×%+!*™@^½λΩ]', re.sub(r'\s\([A-Za-z0-9]+\)$', '', n)):
+            bad['%s: розділові знаки або спецсимволи' % t].append('%s %s' % (i, n[:60]))
+        if vendor and vendor not in n:
+            bad['%s: немає бренду з <vendor>' % t].append(i)
+        if re.search(r'подарун|подарок|акці|знижк|новинк|розпродаж|хіт|оригінал', n, re.I):
+            bad['%s: рекламні слова' % t].append(i)
+    if not (o.findtext('article') or '').strip():
+        bad['немає <article>'].append(i)
+    # p212 опис: HTML у CDATA, лише дозволені теги, без посилань, emoji і подарунків/знижок
+    for t in ('description', 'description_ua'):
+        d = o.findtext(t) or ''
+        if not d.lstrip().startswith('<'):
+            bad['%s без HTML-розмітки' % t].append(i)
+        other = set(x.lower() for x in re.findall(r'</?\s*([a-zA-Z0-9]+)', d)) - DESC_TAGS
+        if other:
+            bad['%s: теги поза переліком Розетки' % t].append('%s %s' % (i, ','.join(sorted(other))))
+        if re.search(r'https?://|www\.|<a\b|lunnitsa\.com', d, re.I):
+            bad['%s: посилання' % t].append(i)
+        if re.search('[\U0001F300-\U0001FAFF☀-➿]', d):
+            bad['%s: emoji' % t].append(i)
+        if re.search(r'\bподарун(?:ок|ком|ка)\b|\bподар(?:ок|ком|ка)\b|знижк|скидк|доставк', d, re.I):
+            bad['%s: подарунок, знижка чи доставка' % t].append(i)
+    if len(o.findall('param')) < 3:
+        bad['характеристик менше 3 (p210)'].append(i)
+    # p216 фото: 400–4000 px, до 10 МБ (перевіряємо свої файли з site/img, якщо є Pillow)
+    for u in pics:
+        f = os.path.join(ROOT, 'site', 'img', u.rsplit('/', 1)[-1]) if '/lunnitsa-rozetka-feed/img/' in u else None
+        if f and Image and os.path.exists(f):
+            w, h = Image.open(f).size
+            if min(w, h) < 400 or max(w, h) > 4000 or os.path.getsize(f) > 10 * 2 ** 20:
+                bad['фото: розмір 400–4000 px, до 10 МБ'].append('%s %s %dx%d' % (i, u.rsplit('/', 1)[-1], w, h))
+for c in shop.find('categories'):
+    if len(c.text or '') > 255:
+        bad['назва категорії > 255'].append(c.get('id'))
+names_ua = collections.Counter(o.findtext('name_ua') for o in shop.find('offers'))
+for n, c in names_ua.items():
+    if c > 1:
+        bad['однакові назви name_ua'].append('%s ×%d' % ((n or '')[:70], c))
 for n, c in names.items():
     if c > 1:
         bad['однакові назви'].append('%s ×%d' % (n[:70], c))

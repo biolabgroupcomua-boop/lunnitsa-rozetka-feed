@@ -11,6 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = r'C:\Users\nomer\OneDrive\DESIGNER\LUNNITSA\Сеты\MakeUp_Lunnitsa'
 IMG = os.path.join(ROOT, 'site', 'img')
 MAX_SIDE, MAX_PICS = 1600, 8
+MIN_SIDE = 400  # Розетка (p216): фото від 400×400 px; смужки складу з етикетки менші, їх не беремо
 SKIP_DIRS = re.compile(r'старий|стари|cтарі|PSD', re.I)
 
 # товари без артикула в назві папки чи файлу: артикул → папка (відносно SRC)
@@ -97,6 +98,10 @@ def main():
         first = next((f for f, w in white if w >= 0.97 and rank(f, a) < 9), None)
         if first:
             files.remove(first); files.insert(0, first)
+        def fits(f):  # розмір після зменшення до MAX_SIDE
+            w, h = ImageOps.exif_transpose(Image.open(os.path.join(full, f))).size
+            return min(w, h) * min(1, MAX_SIDE / max(w, h)) >= MIN_SIDE
+        files = [f for f in files if fits(f)]
         files = files[:MAX_PICS]
         names = []
         for i, f in enumerate(files, 1):
