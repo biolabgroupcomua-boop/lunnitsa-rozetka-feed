@@ -5,6 +5,8 @@
 Адреса фіду для Розетки: https://biolabgroupcomua-boop.github.io/lunnitsa-rozetka-feed/rozetka.xml
 Стан останнього збору: https://biolabgroupcomua-boop.github.io/lunnitsa-rozetka-feed/status.json
 
+Як фід доходить до Розетки через Pricecreator і що робити після змін: [ROZETKA_PRICECREATOR.md](ROZETKA_PRICECREATOR.md) (скрипт `tools/pricecreator.py`).
+
 ## Як працює
 - GitHub Actions щогодини (`.github/workflows/feed.yml`) запускає `build_feed.py`.
 - Основа — фід Розетки, який Horoshop генерує щоночі (`lunnitsa.com/marketplace-integration/rozetka-feed/`): категорії, назви, описи.
