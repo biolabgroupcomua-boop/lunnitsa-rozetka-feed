@@ -9,6 +9,7 @@
 Змінні середовища: HOROSHOP_DOMAIN, HOROSHOP_LOGIN, HOROSHOP_PASSWORD, BASE_URL (адреса Pages, зі слешем у кінці)."""
 import os, re, sys, json, time, datetime, requests
 import rozetka_rules as R
+import rozetka_params as RP
 
 sys.stdout.reconfigure(encoding='utf-8')
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -17,6 +18,8 @@ BASE = os.environ.get('BASE_URL', 'https://biolabgroupcomua-boop.github.io/lunni
 FEED = D + '/marketplace-integration/rozetka-feed/'
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
 MAX_QTY = 999  # як у фіді Horoshop
+# артикул → id категорії Розетки (categories.json): від категорії залежать назви характеристик
+CATS = {a: c['id'] for c in json.load(open(os.path.join(ROOT, 'categories.json'), encoding='utf-8'))['categories'] for a in c['items']}
 
 
 def get_feed():
@@ -63,45 +66,26 @@ def cval(v, lang='ru'):
     return str(v or '').strip()
 
 
-HAIR = ('волос', 'шампун', 'кондиционер')
 # тип волосся: на сайті такої характеристики немає, беремо з hair_types.json (визначено з назв і описів)
 HAIR_TYPES = {k: v for k, v in json.load(open(os.path.join(ROOT, 'hair_types.json'), encoding='utf-8')).items() if not k.startswith('_')}
 
 
-def params(p):
-    """Характеристики для Розетки (назви полів як у фідах інших брендів на Розетці, напр. Melony): країна, склад,
-    об'єм/вага, тип шкіри чи волосся, дія, призначення, EAN."""
+def params(p, cat, title_ua):
+    """Характеристики з назвами й значеннями Розетки для категорії товару (rozetka_params.py): Pricecreator зіставляє
+    лише точні назви. Значення ≤ 500 знаків; кілька значень — через кому (типи List/CheckBoxGroup, довідка p398)."""
     ch = p.get('characteristics') or {}
-    out = []
-    def add(n, v, multi=False):
-        """Вимоги Розетки: значення ≤ 500 знаків; кілька значень — через <br> у CDATA."""
-        v = (v or '').strip()
-        if not v:
-            return
-        if multi and re.search(r'[,;]', v):
-            vals = [x.strip() for x in re.split(r'[,;]', v) if x.strip()]
-            out.append('<param name="%s"><![CDATA[%s]]></param>' % (n, '<br>'.join(vals)[:500]))
-            return
-        if len(v) > 500:  # склад: обрізаємо по останній комі, повний склад є в описі
-            v = v[:497].rsplit(',', 1)[0] + '…'
-        out.append('<param name="%s">%s</param>' % (n, esc(v)))
-    add('Страна-производитель товара', cval(ch.get('country')))
-    add('Состав', cval(ch.get('processor')))
+    art = (p.get('article') or '').strip()
     vol = cval(ch.get('ves')) or cval(ch.get('vid')).split(',')[-1].strip()
-    if re.search(r'\d\s*(мл|л)', vol):
-        add('Объем', re.search(r'[\d.,]+\s*(мл|л)', vol).group(0))
-    elif re.search(r'\d\s*(г|кг|гр)', vol):
-        add('Вес', re.search(r'[\d.,]+\s*(г|кг|гр)', vol).group(0))
-    hair = HAIR_TYPES.get((p.get('article') or '').strip())
-    if hair:
-        add('Тип волос', hair, True)
-    else:
-        kind = (cval(ch.get('produkty')) + ' ' + cval(ch.get('kategorija')) + ' ' + cval(ch.get('primenenie'))).lower()
-        add('Тип волос' if any(h in kind for h in HAIR) else 'Тип кожи', cval(ch.get('tipKozhi')), True)
-    add('Действие', cval(ch.get('deystvie')), True)
-    add('Назначение', cval(ch.get('primenenie')), True)
-    add('EAN', (p.get('gtin') or '').strip())
-    return out
+    m_vol = re.search(r'[\d.,]+\s*(мл|л)\b', vol)
+    m_w = re.search(r'[\d.,]+\s*(г|кг|гр)\b', vol)
+    comp = cval(ch.get('processor'), 'ua')
+    if len(comp) > 500:  # склад: обрізаємо по останній комі, повний склад є в описі
+        comp = comp[:497].rsplit(',', 1)[0] + '…'
+    extra = {'country': cval(ch.get('country')), 'volume': m_vol.group(0) if m_vol else '',
+             'weight': m_w.group(0).replace('гр', 'г') if m_w and not m_vol else '', 'hair': HAIR_TYPES.get(art, ''),
+             'composition': comp, 'ean': (p.get('gtin') or '').strip()}
+    src = {'skin': cval(ch.get('tipKozhi')), 'action': cval(ch.get('deystvie'))}
+    return ['<param name="%s">%s</param>' % (esc(n), esc(v)) for n, v in RP.params(cat, title_ua, src, extra)]
 
 
 def categories(xml, st):
@@ -166,7 +150,7 @@ def main():
             o = re.sub(r'\s*<(name|name_ua|description|description_ua|param)\b[^>]*>.*?</\1>', '', o, flags=re.S)
             block = ['<name>%s</name>' % esc(names['ru'] or names['ua']), '<name_ua>%s</name_ua>' % esc(names['ua'] or names['ru']),
                      '<description><![CDATA[%s]]></description>' % (descs['ru'] or descs['ua']),
-                     '<description_ua><![CDATA[%s]]></description_ua>' % (descs['ua'] or descs['ru'])] + params(p)
+                     '<description_ua><![CDATA[%s]]></description_ua>' % (descs['ua'] or descs['ru'])] + params(p, CATS.get(key, ''), (rt.get('ua') or (p.get('title') or {}).get('ua') or ''))
             o = re.sub(r'\s*</offer>$', '', o) + '\n' + ''.join('\t\t\t\t%s\n' % x for x in block) + '\t\t\t</offer>'
             o = re.sub(r'<offer id="([^"]+)"', lambda m: '<offer id="%s"' % re.sub(r'[^A-Za-z0-9]', '', m.group(1)), o, count=1)
             # бренд у <vendor> = бренд у назві (p217); у Horoshop у двох товарів LELYA стоїть «promo»
