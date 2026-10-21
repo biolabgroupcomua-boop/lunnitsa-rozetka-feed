@@ -45,7 +45,7 @@ def get_products():
     while True:
         r = s.post(D + '/api/catalog/export/', json={'token': tok, 'offset': off, 'limit': 500}, timeout=180).json()['response']['products']
         for p in r:
-            out[p['article']] = p
+            out[p['article'].strip()] = p   # ключ без пробілів: у Horoshop були 'L300 ', 'L304 ' (21.10.2026), фід ночі й API можуть розходитись
         if len(r) < 500:
             return out
         off += 500
@@ -130,8 +130,8 @@ def main():
         o = m.group(0)
         art = re.search(r'<offer id="([^"]+)"', o).group(1)
         key = art.strip()
-        if art in stock:
-            p = stock[art]
+        if key in stock:
+            p = stock[key]
             q, pres, price = int(float(p.get('quantity') or 0)), (p.get('presence') or {}).get('id'), float(p.get('price') or 0)
             avail = 'true' if pres == 1 and q > 0 else 'false'
             o = re.sub(r'available="\w+"', 'available="%s"' % avail, o, count=1)
