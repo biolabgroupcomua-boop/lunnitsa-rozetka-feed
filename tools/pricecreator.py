@@ -17,7 +17,7 @@ from playwright.sync_api import sync_playwright
 sys.stdout.reconfigure(encoding='utf-8')
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = 'https://pricecreator.rozetka.com.ua/'
-FEED_LINK = 'lunnitsa-rozetka-feed'
+FEED_LINK = 'feed-production-2658.up.railway.app'  # з 29.10.2026 джерело 33922 (Railway); старе 33627 (GitHub Pages) без товарів
 MELONY = {'2120', '2129', '3659', '3764', '4626'}
 # парфуми: Розетка вимагає документи (sellerhelp p797); у XML лише після їх подання
 HOLD = {'L243', 'L245', 'L327', 'L328'}
@@ -70,7 +70,7 @@ def edit_links(pg):
 def feed_params():
     """Які характеристики наш фід передає в кожній категорії (з живого фіду)."""
     import urllib.request
-    x = urllib.request.urlopen('https://biolabgroupcomua-boop.github.io/lunnitsa-rozetka-feed/rozetka.xml').read().decode('utf-8')
+    x = urllib.request.urlopen('https://feed-production-2658.up.railway.app/rozetka.xml').read().decode('utf-8')
     used = collections.defaultdict(set)
     for o in re.findall(r'<offer .*?</offer>', x, re.S):
         c = re.search(r'<categoryId>([^<]+)', o).group(1)

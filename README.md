@@ -2,13 +2,16 @@
 
 **Стан: живий.** Фід Розетки для Lunnitsa з фото на білому фоні.
 
-Адреса фіду для Розетки: https://biolabgroupcomua-boop.github.io/lunnitsa-rozetka-feed/rozetka.xml
-Стан останнього збору: https://biolabgroupcomua-boop.github.io/lunnitsa-rozetka-feed/status.json
+Адреса фіду для Розетки: https://feed-production-2658.up.railway.app/rozetka.xml (з 29.10.2026, Railway; у Pricecreator джерело 33922)
+Стан останнього збору: https://feed-production-2658.up.railway.app/status.json, стан сервера: …/healthz
+Шапка листів: https://feed-production-2658.up.railway.app/email/hdr_balm_1200x600.jpg
+
+Стара адреса на GitHub Pages ще працює паралельно, доки не замінено шапку у вітальному листі автоворонки SendPulse; потім розклад у `.github/workflows/feed.yml` вимикається, а репо стає приватним.
 
 Як фід доходить до Розетки через Pricecreator і що робити після змін: [ROZETKA_PRICECREATOR.md](ROZETKA_PRICECREATOR.md) (скрипт `tools/pricecreator.py`).
 
 ## Як працює
-- GitHub Actions щогодини (`.github/workflows/feed.yml`) запускає `build_feed.py`.
+- Railway (`server.py`, проєкт `lunnitsa-rozetka-feed`) щогодини о :17 запускає `build_feed.py` у чернетку `site/.build` і публікує фід лише після `tools/check_feed.py`. Заливка: закомітити, запушити, `python tools/deploy.py`.
 - Основа — фід Розетки, який Horoshop генерує щоночі (`lunnitsa.com/marketplace-integration/rozetka-feed/`): категорії, назви, описи.
 - З API Horoshop щогодини беруться кількість, наявність, звичайна ціна сайту, назви й описи (name/description російською, name_ua/description_ua українською) і характеристики `<param>`: країна, склад, об'єм або вага, тип шкіри, дія, призначення, EAN. Знижок на Розетку не передаємо (стара ціна прибрана): Розетка дає свої знижки.
 - Фото: `site/img`, перелік у `photos.json`. Перше фото кожного товару на білому фоні. Товари без білих фото лишаються з фото сайту (список у `status.json` → `site_photos`).
