@@ -12,6 +12,7 @@ DESC_TAGS = {'strong', 'b', 'p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul',
 sys.stdout.reconfigure(encoding='utf-8')
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'site', 'rozetka.xml')
+IMG_BASE = os.environ.get('BASE_URL', 'https://biolabgroupcomua-boop.github.io/lunnitsa-rozetka-feed/') + 'img/'  # наші фото (решта — з сайту)
 raw = open(path, encoding='utf-8').read()
 bad = collections.defaultdict(list)
 if not raw.startswith('<?xml version="1.0" encoding="UTF-8"?>'):
@@ -98,7 +99,7 @@ for o in shop.find('offers'):
         bad['характеристик менше 3 (p210)'].append(i)
     # p216 фото: 400–4000 px, до 10 МБ (перевіряємо свої файли з site/img, якщо є Pillow)
     for u in pics:
-        f = os.path.join(ROOT, 'site', 'img', u.rsplit('/', 1)[-1]) if '/lunnitsa-rozetka-feed/img/' in u else None
+        f = os.path.join(ROOT, 'site', 'img', u.rsplit('/', 1)[-1]) if u.startswith(IMG_BASE) else None
         if f and Image and os.path.exists(f):
             w, h = Image.open(f).size
             if min(w, h) < 400 or max(w, h) > 4000 or os.path.getsize(f) > 10 * 2 ** 20:

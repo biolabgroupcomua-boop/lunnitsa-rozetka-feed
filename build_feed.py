@@ -6,7 +6,8 @@
 3. Ставить фото з site/img (photos.json; набори — photos_sets.json, білий фон зроблено в KIE з фото сайту): перше на білому.
    Товари без білих фото лишаються з фото сайту.
 4. Пише site/rozetka.xml і site/status.json. Якщо щось не вдалося — падає, і на Pages лишається попередній фід.
-Змінні середовища: HOROSHOP_DOMAIN, HOROSHOP_LOGIN, HOROSHOP_PASSWORD, BASE_URL (адреса Pages, зі слешем у кінці)."""
+Змінні середовища: HOROSHOP_DOMAIN, HOROSHOP_LOGIN, HOROSHOP_PASSWORD, BASE_URL (адреса фіду, зі слешем у кінці),
+OUT_DIR (куди писати rozetka.xml і status.json; за замовчуванням site/ — сервер на Railway пише в чернетку і публікує після перевірки)."""
 import os, re, sys, json, time, datetime, requests
 import rozetka_rules as R
 import rozetka_params as RP
@@ -15,6 +16,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 ROOT = os.path.dirname(os.path.abspath(__file__))
 D = os.environ.get('HOROSHOP_DOMAIN', 'https://lunnitsa.com').rstrip('/')
 BASE = os.environ.get('BASE_URL', 'https://biolabgroupcomua-boop.github.io/lunnitsa-rozetka-feed/')
+OUT = os.environ.get('OUT_DIR') or os.path.join(ROOT, 'site')
 FEED = D + '/marketplace-integration/rozetka-feed/'
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
 MAX_QTY = 999  # як у фіді Horoshop
@@ -180,12 +182,12 @@ def main():
     except Exception:
         now = datetime.datetime.now(datetime.timezone.utc)
     xml = re.sub(r'yml_catalog date="[^"]*"', 'yml_catalog date="%s"' % now.strftime('%Y-%m-%d %H:%M'), xml, count=1)
-    os.makedirs(os.path.join(ROOT, 'site'), exist_ok=True)
-    open(os.path.join(ROOT, 'site', 'rozetka.xml'), 'w', encoding='utf-8').write(xml)
+    os.makedirs(OUT, exist_ok=True)
+    open(os.path.join(OUT, 'rozetka.xml'), 'w', encoding='utf-8').write(xml)
     st.update({'offers': n, 'built_utc': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')})
-    json.dump(st, open(os.path.join(ROOT, 'site', 'status.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    json.dump(st, open(os.path.join(OUT, 'status.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     import subprocess
-    chk = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'check_feed.py')], capture_output=True, text=True, encoding='utf-8')
+    chk = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'check_feed.py'), os.path.join(OUT, 'rozetka.xml')], capture_output=True, text=True, encoding='utf-8')
     print(chk.stdout.strip())
     if chk.returncode:
         raise SystemExit('фід не пройшов перевірку правил Розетки')
