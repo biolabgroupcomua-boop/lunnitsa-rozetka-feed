@@ -21,7 +21,7 @@ STATE = ROOT / "tools" / "railway.json"
 PROJECT_NAME, SERVICE_NAME = "lunnitsa-rozetka-feed", "feed"
 # що йде на сервер: код збору, правила, довідники і статичні файли (без інструментів для фото і документів)
 SHIP = ["Dockerfile", "server.py", "build_feed.py", "rozetka_rules.py", "rozetka_params.py", "categories.json", "hair_types.json",
-        "photos.json", "photos_sets.json", "pricecreator_params.json", "rozetka_category_params.json", "tools/check_feed.py",
+        "photos.json", "photos_sets.json", "discounts.json", "pricecreator_params.json", "rozetka_category_params.json", "tools/check_feed.py",
         "site/img", "site/email"]
 ENV_FILE = Path.home() / "lunnitsa-site" / "tools" / ".env"
 SECRETS = ("HOROSHOP_DOMAIN", "HOROSHOP_LOGIN", "HOROSHOP_PASSWORD")
