@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Фід Розетки для Lunnitsa з білими фото. Запускає GitHub Actions щогодини (.github/workflows/feed.yml).
 1. Бере фід Розетки, який Horoshop генерує щоночі: категорії, назви, описи.
-2. З API Horoshop бере актуальні кількість, наявність, звичайну ціну, назви й описи UA/RU і характеристики (<param>). Знижок на Розетку не передаємо
-   (Olena 19.10: «Розетка дає свої знижки»): price = ціна сайту без знижок, price_old прибираємо.
+2. З API Horoshop бере актуальні кількість, наявність, звичайну ціну, назви й описи UA/RU і характеристики (<param>). Знижки сайту на Розетку не
+   передаємо (Olena 19.10: «Розетка дає свої знижки»): price = ціна сайту без знижок, price_old прибираємо. Виняток — затверджені
+   Olena знижки для Розетки з discounts.json: у їхній період price_old = ціна сайту, price = ціна зі знижкою.
 3. Ставить фото з site/img (photos.json; набори — photos_sets.json, білий фон зроблено в KIE з фото сайту): перше на білому.
    Товари без білих фото лишаються з фото сайту.
 4. Пише site/rozetka.xml і site/status.json. Якщо щось не вдалося — падає, і на Pages лишається попередній фід.
@@ -22,6 +23,26 @@ UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like 
 MAX_QTY = 999  # як у фіді Horoshop
 # артикул → id категорії Розетки (categories.json): від категорії залежать назви характеристик
 CATS = {a: c['id'] for c in json.load(open(os.path.join(ROOT, 'categories.json'), encoding='utf-8'))['categories'] for a in c['items']}
+PROMOS = json.load(open(os.path.join(ROOT, 'discounts.json'), encoding='utf-8'))['promos']
+
+
+def kyiv_now():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.datetime.now(ZoneInfo('Europe/Kyiv'))
+    except Exception:
+        return datetime.datetime.now(datetime.timezone.utc)
+
+
+def discount(key, price, now):
+    """(стара ціна, ціна зі знижкою) за discounts.json, якщо зараз період знижки і ціна сайту = затверджена стара; інакше None.
+    now — київський час без зони, рядок 'YYYY-MM-DD HH:MM'."""
+    for pr in PROMOS:
+        if pr['from'] <= now <= pr['to'] and key in pr['items']:
+            if price != pr['items'][key]:
+                return 'skip'
+            return price, round(price * (100 - pr['percent']) / 100, 2)
+    return None
 
 
 def get_feed():
@@ -126,7 +147,8 @@ def main():
     sets_path = os.path.join(ROOT, 'photos_sets.json')  # набори: біле фото з KIE + решта фото сайту (URL)
     if os.path.exists(sets_path):
         photos.update(json.load(open(sets_path, encoding='utf-8')))
-    st = {'white_photos': 0, 'site_photos': [], 'stock_updated': 0, 'not_in_api': []}
+    st = {'white_photos': 0, 'site_photos': [], 'stock_updated': 0, 'not_in_api': [], 'discounts': 0, 'discount_skipped': []}
+    now_k = kyiv_now().strftime('%Y-%m-%d %H:%M')
 
     def offer(m):
         o = m.group(0)
@@ -138,9 +160,16 @@ def main():
             avail = 'true' if pres == 1 and q > 0 else 'false'
             o = re.sub(r'available="\w+"', 'available="%s"' % avail, o, count=1)
             o = re.sub(r'<stock_quantity>[^<]*</stock_quantity>', '<stock_quantity>%d</stock_quantity>' % max(0, min(q, MAX_QTY)), o, count=1)
-            if price > 0:
-                o = re.sub(r'<price>[^<]*</price>', '<price>%s</price>' % ('%g' % price), o, count=1)
             o = re.sub(r'\s*<price_old>[^<]*</price_old>', '', o)
+            if price > 0:
+                dc = discount(key, price, now_k)
+                if dc == 'skip':
+                    st['discount_skipped'].append(key)
+                    dc = None
+                o = re.sub(r'<price>[^<]*</price>', '<price>%s</price>' % ('%g' % (dc[1] if dc else price)), o, count=1)
+                if dc:
+                    o = o.replace('</price>', '</price>\n\t\t\t\t<price_old>%g</price_old>' % dc[0], 1)
+                    st['discounts'] += 1
             # назва й опис: name/description російською, name_ua/description_ua українською (вимога YML Розетки)
             rt, md = p.get('rozetka_title') or {}, p.get('marketplace_description') or {}
             # назва за формулою Розетки (p217), опис з HTML-розміткою (p212): rozetka_rules.py
@@ -176,11 +205,7 @@ def main():
     xml = categories(xml, st)
     # p185: date = час генерації або зміни файлу; Horoshop ставить час нічного фіду, а ми оновлюємо щогодини
     st['horoshop_feed_date'] = (re.search(r'yml_catalog date="([^"]+)"', xml) or [None, ''])[1]
-    try:
-        from zoneinfo import ZoneInfo
-        now = datetime.datetime.now(ZoneInfo('Europe/Kyiv'))
-    except Exception:
-        now = datetime.datetime.now(datetime.timezone.utc)
+    now = kyiv_now()
     xml = re.sub(r'yml_catalog date="[^"]*"', 'yml_catalog date="%s"' % now.strftime('%Y-%m-%d %H:%M'), xml, count=1)
     os.makedirs(OUT, exist_ok=True)
     open(os.path.join(OUT, 'rozetka.xml'), 'w', encoding='utf-8').write(xml)
@@ -191,8 +216,8 @@ def main():
     print(chk.stdout.strip())
     if chk.returncode:
         raise SystemExit('фід не пройшов перевірку правил Розетки')
-    print('товарів %d | білі фото %d | фото сайту %d | кількість з API %d | немає в API %d' % (
-        n, st['white_photos'], len(st['site_photos']), st['stock_updated'], len(st['not_in_api'])))
+    print('товарів %d | білі фото %d | фото сайту %d | кількість з API %d | немає в API %d | знижки %d | знижку не поставлено %s' % (
+        n, st['white_photos'], len(st['site_photos']), st['stock_updated'], len(st['not_in_api']), st['discounts'], st['discount_skipped']))
 
 
 if __name__ == '__main__':
