@@ -41,7 +41,8 @@ def discount(key, price, now):
         if pr['from'] <= now <= pr['to'] and key in pr['items']:
             if price != pr['items'][key]:
                 return 'skip'
-            return price, round(price * (100 - pr['percent']) / 100, 2)
+            # ціна зі знижкою — ціла гривня, 0,5 вгору (Olena 11.11: «копійки округляємо»)
+            return price, int(price * (100 - pr['percent']) / 100 + 0.5)
     return None
 
 
