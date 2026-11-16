@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Фід Розетки на Railway: віддає site/ (rozetka.xml, status.json, img/, email/) і щогодини збирає фід заново.
+"""Фід Розетки на Railway: віддає site/ (rozetka.xml, meloni.xml, status.json, img/, email/) і щогодини збирає фід заново.
 
 Збір іде в чернетку site/.build: build_feed.py пише туди rozetka.xml і status.json і сам проганяє tools/check_feed.py.
 Лише якщо збір і перевірка пройшли, файли переносяться в site/ (os.replace, тож Розетка ніколи не бачить напівзаписаний файл).
@@ -38,7 +38,23 @@ def build():
     for f in ('rozetka.xml', 'status.json'):
         os.replace(os.path.join(DRAFT, f), os.path.join(SITE, f))
     state.update(last_ok_utc=now(), last_error=None, fails_in_row=0)
+    meloni()
     return True
+
+
+def meloni():
+    """meloni.xml (build_meloni.py, з 16.11.2026) окремо: його збій не зупиняє фід Лунниці, лишається попередній meloni.xml."""
+    try:
+        r = subprocess.run([sys.executable, os.path.join(ROOT, 'build_meloni.py')], env={**os.environ, 'OUT_DIR': DRAFT},
+                           capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
+        print(r.stdout.strip())
+        if r.returncode:
+            state['meloni_error'] = (r.stderr.strip().splitlines() or ['код %d' % r.returncode])[-1][:300]
+            return
+        os.replace(os.path.join(DRAFT, 'meloni.xml'), os.path.join(SITE, 'meloni.xml'))
+        state['meloni_error'] = None
+    except Exception as e:  # noqa: BLE001
+        state['meloni_error'] = repr(e)[:300]
 
 
 def loop():

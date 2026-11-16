@@ -3,3 +3,4 @@ site/status.json
 __pycache__/
 work_sets/
 site/.build/
+site/meloni.xml
