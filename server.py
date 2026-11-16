@@ -6,7 +6,7 @@
 Не вдалося — лишається попередній фід, помилку видно на /healthz. Після старту сервера, поки першого фіду немає, збір
 повторюється кожні 5 хвилин.
 
-Змінні: PORT, BASE_URL, HOROSHOP_DOMAIN, HOROSHOP_LOGIN, HOROSHOP_PASSWORD."""
+Змінні: PORT, BASE_URL, HOROSHOP_DOMAIN, HOROSHOP_LOGIN, HOROSHOP_PASSWORD, MELONI_FEED (фід сайту Meloni для meloni.xml)."""
 import datetime, json, os, subprocess, sys, threading, time
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
